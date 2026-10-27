@@ -1,0 +1,19 @@
+[project]
+name = "blackjack-counter"
+version = "1.0.0"
+description = "Blackjack basic-strategy chart with a Wong Halves card counter that adapts the chart to the true count"
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv]
+# A single-file tkinter app, nothing to build or install.
+package = false
