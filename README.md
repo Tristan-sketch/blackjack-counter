@@ -1,3 +1,5 @@
+![Blackjack Counter](docs/banner.png)
+
 # Blackjack Counter
 
 [![Tests](https://github.com/Tristan-sketch/blackjack-counter/actions/workflows/tests.yml/badge.svg)](https://github.com/Tristan-sketch/blackjack-counter/actions/workflows/tests.yml)
@@ -37,7 +39,7 @@ The interface is in German, because the spreadsheet it is built from is German.
 tens and aces, which favours the player: the app says "Einsteigen" (enter) and raises the bet. At
 zero or below it says "Aussteigen" (leave).
 
-**Index plays.** The basic-strategy chart assumes a neutral shoe. Seventeen hands, plus insurance,
+**Index plays.** The basic-strategy chart assumes a neutral shoe. Seventeen hands, plus insurance (together the "Illustrious 18"),
 are played differently once the true count passes a threshold, for example standing on 16 against a
 10 from a true count of 0, or taking insurance from +3.
 
