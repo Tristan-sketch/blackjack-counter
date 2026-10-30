@@ -131,11 +131,18 @@ def test_edge_and_insurance():
     assert not bj.take_insurance(None)
 
 
+def test_kelly_fraction_is_edge_over_variance():
+    assert bj.kelly_fraction(3) == pytest.approx(0.01 / bj.HAND_VARIANCE)
+    assert bj.kelly_fraction(0) == 0
+    assert bj.kelly_fraction(-4) == 0
+    assert bj.kelly_fraction(None) == 0
+
+
 # --- Formatting -------------------------------------------------------------
 
-def test_german_number_format():
-    assert bj.fmt(1.25, 2) == "+1,25"
+def test_number_format():
+    assert bj.fmt(1.25, 2) == "+1.25"
     assert bj.points(1) == "+1"
-    assert bj.points(1.5) == "+1,5"
+    assert bj.points(1.5) == "+1.5"
     assert bj.points(0) == "0"
     assert bj.points(-1, sign=False) == "-1"

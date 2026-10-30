@@ -1,14 +1,14 @@
-"""Blackjack-Optimaltaktik mit Wong-Halves-Kartenzähler.
+"""Blackjack basic strategy with a Wong Halves card counter.
 
-Nachbau von Blackjack.xlsx (Tabelle1) mit zusätzlichem Count-Panel:
-- Wong-Halves-Zählwerte und Legende wie in der Excel
-- Optimaltaktik-Tabelle (Basis aus der Excel, A,A / 8,8 / 11 gegen 10 / A,2 gegen 5
-  auf Standard korrigiert)
-- Count-Tasten je Karte, Running Count, True Count = Punkte / verbleibende Decks
-- Tabelle passt sich per Index-Plays (Illustrious 18) an den True Count an
-- Wahrscheinlichkeit der nächsten Karte, geschätzter Spielervorteil, Einsatzempfehlung
+Rebuilt from a spreadsheet (Blackjack.xlsx, sheet 1) with an added count panel:
+- Wong Halves card values and the legend as in the spreadsheet
+- Basic-strategy chart (spreadsheet base, A,A / 8,8 / 11 vs 10 / A,2 vs 5
+  corrected to standard multi-deck strategy)
+- One count button per card, running count, true count = points / remaining decks
+- The chart adapts to the true count through index plays (Illustrious 18)
+- Next-card probabilities, estimated player edge, bet and Kelly fraction
 
-Start: python blackjack_counter.py   (nur Standardbibliothek, tkinter)
+Run: python blackjack_counter.py   (standard library only, tkinter)
 """
 
 import math
@@ -17,31 +17,31 @@ from tkinter import ttk, messagebox
 from tkinter import font as tkfont
 
 # --------------------------------------------------------------------------- #
-# Daten aus der Excel
+# Data from the spreadsheet
 # --------------------------------------------------------------------------- #
 
 RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
 
-# Wong Halves (Excel B4:C13). "10" steht für 10/Bube/Dame/König.
+# Wong Halves (spreadsheet B4:C13). "10" stands for ten, jack, queen and king.
 HALVES = {"2": 0.5, "3": 1, "4": 1, "5": 1.5, "6": 1, "7": 0.5,
           "8": 0, "9": -0.5, "10": -1, "A": -1}
 
 CARDS_PER_DECK = {r: 4 for r in RANKS}
 CARDS_PER_DECK["10"] = 16
 
-# Aktionen mit den Excel-Farben (Legende B24:C28)
+# Actions with the spreadsheet colours (legend B24:C28)
 ACTIONS = {
     "H": ("Hit", "#4EA72E", "white"),
-    "S": ("Stay", "#FF0000", "white"),
+    "S": ("Stand", "#FF0000", "white"),
     "D": ("Double", "#0F9ED5", "white"),
     "P": ("Split", "#FFFF00", "black"),
 }
 CELL_TEXT = {"H": "H", "S": "S", "D": "D", "P": "SP"}
 
-# Optimaltaktik (Excel E4:O32), Spalten = Dealerkarte 2..A.
-# Abweichend von der Excel (auf Standard-Basisstrategie korrigiert):
-#   11 gegen 10 = Double (Excel: Hit), 8,8 immer Split (Excel: Stay gegen 10/A),
-#   A,A immer Split (Excel: immer Hit), A,2 gegen 5 = Double (Excel: Hit).
+# Basic strategy (spreadsheet E4:O32), columns = dealer upcard 2..A.
+# Differences from the spreadsheet (corrected to standard basic strategy):
+#   11 vs 10 = Double (spreadsheet: Hit), 8,8 always Split (spreadsheet: Stand vs 10/A),
+#   A,A always Split (spreadsheet: always Hit), A,2 vs 5 = Double (spreadsheet: Hit).
 STRATEGY = [
     ("4-8",   "HHHHHHHHHH"),
     ("9",     "HDDDDHHHHH"),
@@ -74,8 +74,8 @@ STRATEGY = [
 ]
 BASE = {hand: dict(zip(RANKS, row)) for hand, row in STRATEGY}
 
-# Index-Plays ("Illustrious 18", Hi-Lo-Indizes, als Näherung für Wong Halves):
-# (Hand, Dealer) -> (Index, Aktion bei TC >= Index, Aktion bei TC < Index)
+# Index plays ("Illustrious 18", Hi-Lo indices, as an approximation for Wong Halves):
+# (hand, dealer) -> (index, action at TC >= index, action at TC < index)
 INDEX_PLAYS = {
     ("16", "10"):    (0, "S", "H"),
     ("15", "10"):    (4, "S", "H"),
@@ -97,12 +97,14 @@ INDEX_PLAYS = {
 }
 INSURANCE_INDEX = 3
 
-# Grobe Faustregeln für Vorteil und Einsatz
-BASE_EDGE = -0.5      # % Spielervorteil bei TC 0 (Basisstrategie, Mehrdeck)
-EDGE_PER_TC = 0.5     # % zusätzlicher Vorteil je True-Count-Punkt
+# Rough rules of thumb for edge and bet
+BASE_EDGE = -0.5      # % player edge at TC 0 (basic strategy, multi-deck)
+EDGE_PER_TC = 0.5     # % additional edge per true-count point
 MAX_UNITS = 8
+# Variance of one hand of blackjack in squared units (standard multi-deck value)
+HAND_VARIANCE = 1.32
 
-# Tastatur: Taste -> Karte
+# Keyboard: key -> card
 KEYS = {str(n): str(n) for n in range(2, 10)}
 KEYS.update({"0": "10", "t": "10", "a": "A"})
 
@@ -111,22 +113,21 @@ BOLD = ("Segoe UI", 9, "bold")
 
 
 def fmt(x, digits=1, sign=True):
-    """Zahl mit deutschem Dezimalkomma."""
-    s = f"{x:+.{digits}f}" if sign else f"{x:.{digits}f}"
-    return s.replace(".", ",")
+    """Number with a fixed number of decimals and, by default, a sign."""
+    return f"{x:+.{digits}f}" if sign else f"{x:.{digits}f}"
 
 
 def points(x, sign=True):
-    """Zählwert ohne überflüssige Nachkommastelle (1 statt 1,0)."""
+    """Count value without a needless decimal (1 instead of 1.0)."""
     return fmt(x, 0 if x == int(x) else 1, sign=sign and x != 0)
 
 
 # --------------------------------------------------------------------------- #
-# Logik (ohne Oberfläche, damit sie sich testen lässt)
+# Logic (kept apart from the interface so it can be tested)
 # --------------------------------------------------------------------------- #
 
 class Shoe:
-    """Der Kartenschuh: welche Karten schon gesehen wurden."""
+    """The shoe: which cards have been seen so far."""
 
     def __init__(self, decks=6):
         self.decks = decks
@@ -167,26 +168,26 @@ class Shoe:
         return sum(HALVES[r] * n for r, n in self.seen.items())
 
     def true_count(self):
-        """Running Count je verbleibendem Deck, None wenn der Schuh leer ist."""
+        """Running count per remaining deck, None once the shoe is empty."""
         remaining = self.remaining_cards()
         if remaining <= 0:
             return None
         return self.running_count() / (remaining / 52)
 
     def probability(self, ranks):
-        """Wahrscheinlichkeit in %, dass die nächste Karte einer der Ränge ist."""
+        """Probability in % that the next card is one of the ranks."""
         remaining = self.remaining_cards()
         if remaining <= 0:
             return 0.0
         return sum(self.remaining(r) for r in ranks) / remaining * 100
 
     def base_probability(self, ranks):
-        """Wahrscheinlichkeit in % bei einem frischen Schuh."""
+        """Probability in % for a fresh shoe."""
         return sum(CARDS_PER_DECK[r] for r in ranks) / 52 * 100
 
 
 def strategy_action(hand, dealer, tc):
-    """Aktion für Hand gegen Dealerkarte, mit Index-Play-Abweichung je True Count."""
+    """Action for a hand against a dealer upcard, with the index-play deviation for the true count."""
     base = BASE[hand][dealer]
     play = INDEX_PLAYS.get((hand, dealer))
     if play is None or tc is None:
@@ -196,15 +197,22 @@ def strategy_action(hand, dealer, tc):
 
 
 def player_edge(tc):
-    """Geschätzter Spielervorteil in % (Faustregel)."""
+    """Estimated player edge in % (rule of thumb)."""
     return BASE_EDGE + EDGE_PER_TC * tc
 
 
 def bet_units(tc):
-    """Einsatz in Einheiten: 0 bei TC <= 0 (Aussteigen), sonst abgerundeter TC, 1..MAX_UNITS."""
+    """Bet in units: 0 at TC <= 0 (leave), otherwise the true count rounded down, 1..MAX_UNITS."""
     if tc is None or tc <= 0:
         return 0
     return min(MAX_UNITS, max(1, math.floor(tc)))
+
+
+def kelly_fraction(tc):
+    """Share of the bankroll that maximises expected log growth: edge / variance, 0 without an edge."""
+    if tc is None:
+        return 0.0
+    return max(0.0, player_edge(tc) / 100 / HAND_VARIANCE)
 
 
 def take_insurance(tc):
@@ -212,11 +220,11 @@ def take_insurance(tc):
 
 
 # --------------------------------------------------------------------------- #
-# Oberfläche
+# Interface
 # --------------------------------------------------------------------------- #
 
 class Tooltip:
-    """Kleines Hinweisfenster beim Überfahren eines Widgets."""
+    """Small hint window while the mouse is over a widget."""
 
     def __init__(self, widget, text_fn):
         self.widget, self.text_fn, self.tip = widget, text_fn, None
@@ -242,7 +250,7 @@ class Tooltip:
 class BlackjackApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Blackjack – Optimaltaktik & Wong Halves")
+        self.title("Blackjack – Basic Strategy & Wong Halves")
         self.configure(bg="white", padx=12, pady=12)
 
         self.decks = tk.IntVar(value=6)
@@ -269,7 +277,7 @@ class BlackjackApp(tk.Tk):
         self.refresh()
 
     # ------------------------------------------------------------------ #
-    # Aufbau
+    # Layout
     # ------------------------------------------------------------------ #
 
     def _cell(self, parent, text, row, col, bold=False, **kw):
@@ -283,7 +291,7 @@ class BlackjackApp(tk.Tk):
                  bg="white").pack(anchor="w")
         table = tk.Frame(parent, bg="white")
         table.pack(anchor="w", pady=(4, 14))
-        self._cell(table, "Card Value", 0, 0, bold=True, width=10)
+        self._cell(table, "Card", 0, 0, bold=True, width=10)
         self._cell(table, "Points", 0, 1, bold=True, width=7)
         for i, r in enumerate(RANKS[:8], start=1):
             self._cell(table, r, i, 0, bold=True)
@@ -294,29 +302,29 @@ class BlackjackApp(tk.Tk):
     def _build_legend(self, parent):
         table = tk.Frame(parent, bg="white")
         table.pack(anchor="w", pady=(0, 14))
-        self._cell(table, "Legende", 0, 0, bold=True, width=10)
-        self._cell(table, "Farbe", 0, 1, bold=True, width=7)
+        self._cell(table, "Legend", 0, 0, bold=True, width=10)
+        self._cell(table, "Colour", 0, 1, bold=True, width=7)
         for i, code in enumerate("HSDP", start=1):
             name, color, _ = ACTIONS[code]
             self._cell(table, name, i, 0, bold=True)
             self._cell(table, "", i, 1, bg=color)
 
     def _build_formula(self, parent):
-        text = ("True Count = Points / Verbleibende Decks\n\n"
-                "Positiv = Einsteigen\nNegativ = Aussteigen\nNeutral = Aussteigen\n\n"
-                "!Je größer der True Count\ndesto mehr Einsatz!")
+        text = ("True count = points / remaining decks\n\n"
+                "Positive = play\nNegative = leave\nZero = leave\n\n"
+                "The higher the true count,\nthe larger the bet")
         tk.Label(parent, text=text, font=BOLD, bg="white",
                  justify="center").pack(anchor="w", pady=(0, 14))
 
     def _build_deviations(self, parent):
-        tk.Label(parent, text="Aktive Abweichungen (Index-Plays)", font=BOLD,
+        tk.Label(parent, text="Active deviations (index plays)", font=BOLD,
                  bg="white").pack(anchor="w")
         self.dev_label = tk.Label(parent, text="", font=FONT, bg="white",
                                   justify="left", anchor="w", wraplength=230)
         self.dev_label.pack(anchor="w", fill="x")
 
     def _build_strategy(self, parent):
-        tk.Label(parent, text="Optimaltaktik", font=("Segoe UI", 12, "bold"),
+        tk.Label(parent, text="Basic strategy", font=("Segoe UI", 12, "bold"),
                  bg="white").pack(anchor="w")
         table = tk.Frame(parent, bg="white")
         table.pack(anchor="w", pady=(4, 0))
@@ -324,7 +332,7 @@ class BlackjackApp(tk.Tk):
         for c, r in enumerate(RANKS, start=1):
             self._cell(table, r, 0, c, bold=True, width=4)
 
-        # Feste Zellgröße, damit die dicke Umrandung die Zeilen nicht verschiebt
+        # Fixed cell size, so the thick border does not shift the rows
         font = tkfont.Font(font=BOLD)
         cell_w = font.measure("SP*") + 16
         cell_h = font.metrics("linespace") + 5
@@ -339,19 +347,19 @@ class BlackjackApp(tk.Tk):
                 self.cells[(hand, dealer)] = lbl
                 Tooltip(lbl, lambda h=hand, d=dealer: self._cell_tooltip(h, d))
 
-        tk.Label(parent, text="Dick umrandete Felder mit * weichen wegen des True Counts\n"
-                              "von der Basistabelle ab (Maus drüber für Details).",
+        tk.Label(parent, text="Cells with a thick border and * differ from the base chart\n"
+                              "because of the true count (hover for details).",
                  font=("Segoe UI", 9), fg="#555", bg="white",
                  justify="left").pack(anchor="w", pady=(6, 0))
 
     def _build_count_panel(self, parent):
-        box = tk.LabelFrame(parent, text=" Kartenzähler ", font=BOLD, bg="white",
+        box = tk.LabelFrame(parent, text=" Card counter ", font=BOLD, bg="white",
                             padx=10, pady=8)
         box.pack(fill="x")
 
         top = tk.Frame(box, bg="white")
         top.pack(fill="x")
-        tk.Label(top, text="Decks im Schuh:", font=FONT, bg="white").pack(side="left")
+        tk.Label(top, text="Decks in the shoe:", font=FONT, bg="white").pack(side="left")
         self.deck_box = ttk.Combobox(top, values=list(range(1, 9)), width=3,
                                      state="readonly", textvariable=self.decks)
         self.deck_box.pack(side="left", padx=6)
@@ -359,7 +367,7 @@ class BlackjackApp(tk.Tk):
 
         counts = tk.Frame(box, bg="white")
         counts.pack(fill="x", pady=8)
-        for col, title in enumerate(("Running Count", "True Count")):
+        for col, title in enumerate(("Running count", "True count")):
             tk.Label(counts, text=title, font=FONT, bg="white").grid(row=0, column=col, padx=12)
         self.rc_label = tk.Label(counts, font=("Segoe UI", 22, "bold"), bg="white")
         self.tc_label = tk.Label(counts, font=("Segoe UI", 22, "bold"), bg="white")
@@ -375,24 +383,25 @@ class BlackjackApp(tk.Tk):
 
         self.edge_label = tk.Label(box, font=FONT, bg="white", anchor="w")
         self.edge_label.pack(fill="x")
+        self.kelly_label = tk.Label(box, font=FONT, bg="white", anchor="w")
+        self.kelly_label.pack(fill="x")
 
         bet = tk.Frame(box, bg="white")
         bet.pack(fill="x")
-        tk.Label(bet, text="1 Einheit =", font=FONT, bg="white").pack(side="left")
+        tk.Label(bet, text="1 unit =", font=FONT, bg="white").pack(side="left")
         tk.Entry(bet, textvariable=self.unit, width=6, font=FONT).pack(side="left", padx=4)
-        tk.Label(bet, text="€", font=FONT, bg="white").pack(side="left")
         self.bet_label = tk.Label(box, font=BOLD, bg="white", anchor="w")
         self.bet_label.pack(fill="x")
         self.insurance_label = tk.Label(box, font=FONT, bg="white", anchor="w")
         self.insurance_label.pack(fill="x", pady=(0, 8))
 
-        tk.Label(box, text="Gesehene Karte anklicken:", font=BOLD,
+        tk.Label(box, text="Click every card you see:", font=BOLD,
                  bg="white").pack(anchor="w")
         grid = tk.Frame(box, bg="white")
         grid.pack(pady=4)
         self.card_buttons = {}
         for i, r in enumerate(RANKS):
-            text = f"{'10/B/D/K' if r == '10' else r}\n{points(HALVES[r])}"
+            text = f"{'10/J/Q/K' if r == '10' else r}\n{points(HALVES[r])}"
             btn = tk.Button(grid, text=text, font=BOLD, width=8,
                             command=lambda rank=r: self.add_card(rank))
             btn.grid(row=i // 5, column=i % 5, padx=2, pady=2)
@@ -400,30 +409,30 @@ class BlackjackApp(tk.Tk):
 
         actions = tk.Frame(box, bg="white")
         actions.pack(fill="x", pady=(4, 0))
-        tk.Button(actions, text="↶ Rückgängig", font=FONT,
+        tk.Button(actions, text="↶ Undo", font=FONT,
                   command=self.undo).pack(side="left", expand=True, fill="x", padx=2)
-        tk.Button(actions, text="Neuer Schuh", font=FONT,
+        tk.Button(actions, text="New shoe", font=FONT,
                   command=self.new_shoe).pack(side="left", expand=True, fill="x", padx=2)
-        tk.Label(box, text="Tastatur: 2–9, 0 = 10/Bild, A = Ass, Rücktaste = Rückgängig",
+        tk.Label(box, text="Keyboard: 2–9, 0 = ten/face, A = ace, Backspace = undo",
                  font=("Segoe UI", 9), fg="#555", bg="white").pack(anchor="w", pady=(4, 0))
 
     def _build_probabilities(self, parent):
-        box = tk.LabelFrame(parent, text=" Wahrscheinlichkeit nächste Karte ", font=BOLD,
+        box = tk.LabelFrame(parent, text=" Next-card probability ", font=BOLD,
                             bg="white", padx=10, pady=8)
         box.pack(fill="x", pady=(10, 0))
-        for c, title in enumerate(("Karte", "Übrig", "Jetzt", "Normal", "Δ")):
+        for c, title in enumerate(("Card", "Left", "Now", "Fresh", "Δ")):
             tk.Label(box, text=title, font=BOLD, bg="white",
                      width=8).grid(row=0, column=c)
         self.prob_rows = {}
         groups = [(r, [r]) for r in RANKS] + [
-            ("Klein 2–6", ["2", "3", "4", "5", "6"]),
-            ("Mitte 7–9", ["7", "8", "9"]),
-            ("Hoch 10–A", ["10", "A"]),
+            ("Low 2–6", ["2", "3", "4", "5", "6"]),
+            ("Mid 7–9", ["7", "8", "9"]),
+            ("High 10–A", ["10", "A"]),
         ]
         for i, (name, members) in enumerate(groups, start=1):
-            label = "10/Bild" if name == "10" else name
+            label = "10/face" if name == "10" else name
             is_group = len(members) > 1
-            pady = (6, 0) if name == "Klein 2–6" else 0
+            pady = (6, 0) if name == "Low 2–6" else 0
             row = []
             for c in range(5):
                 lbl = tk.Label(box, text=label if c == 0 else "", bg="white",
@@ -433,7 +442,7 @@ class BlackjackApp(tk.Tk):
             self.prob_rows[name] = (members, row)
 
     # ------------------------------------------------------------------ #
-    # Bedienung
+    # Controls
     # ------------------------------------------------------------------ #
 
     def add_card(self, rank):
@@ -446,7 +455,7 @@ class BlackjackApp(tk.Tk):
 
     def new_shoe(self, ask=True):
         if ask and self.shoe.history and not messagebox.askyesno(
-                "Neuer Schuh", "Count zurücksetzen und neuen Schuh beginnen?"):
+                "New shoe", "Reset the count and start a new shoe?"):
             return False
         self.shoe.reset()
         self.refresh()
@@ -454,8 +463,8 @@ class BlackjackApp(tk.Tk):
 
     def _on_decks_changed(self, _event=None):
         if self.shoe.history and not messagebox.askyesno(
-                "Decks ändern", "Beim Ändern der Deckzahl wird der Count zurückgesetzt. "
-                                "Fortfahren?"):
+                "Change decks", "Changing the number of decks resets the count. "
+                                "Continue?"):
             self.decks.set(self.shoe.decks)
             return
         self.shoe.reset(self.decks.get())
@@ -473,18 +482,18 @@ class BlackjackApp(tk.Tk):
         tc = self.shoe.true_count()
         base = BASE[hand][dealer]
         now = strategy_action(hand, dealer, tc)
-        text = f"{hand} gegen {dealer}\nBasis: {ACTIONS[base][0]}"
+        text = f"{hand} vs {dealer}\nBase: {ACTIONS[base][0]}"
         play = INDEX_PLAYS.get((hand, dealer))
         if play:
             index, above, below = play
-            text += (f"\nIndex: {ACTIONS[above][0]} ab TC ≥ {points(index)}, "
-                     f"sonst {ACTIONS[below][0]}")
+            text += (f"\nIndex: {ACTIONS[above][0]} from TC ≥ {points(index)}, "
+                     f"otherwise {ACTIONS[below][0]}")
         if now != base:
-            text += f"\nJetzt: {ACTIONS[now][0]} (wegen True Count)"
+            text += f"\nNow: {ACTIONS[now][0]} (because of the true count)"
         return text
 
     # ------------------------------------------------------------------ #
-    # Anzeige
+    # Display
     # ------------------------------------------------------------------ #
 
     def refresh(self):
@@ -497,13 +506,13 @@ class BlackjackApp(tk.Tk):
         self.tc_label.config(text="–" if tc is None else fmt(tc),
                              fg=self._sign_color(tc or 0))
         self.shoe_label.config(
-            text=f"Gezählte Karten: {len(shoe.history)} / {shoe.total_cards()}   ·   "
-                 f"Verbleibend: {remaining} Karten = {fmt(remaining / 52, sign=False)} Decks")
+            text=f"Cards counted: {len(shoe.history)} / {shoe.total_cards()}   ·   "
+                 f"Remaining: {remaining} cards = {fmt(remaining / 52, sign=False)} decks")
 
         if tc is not None and tc > 0:
-            self.signal_label.config(text="EINSTEIGEN", bg="#4EA72E")
+            self.signal_label.config(text="PLAY", bg="#4EA72E")
         else:
-            self.signal_label.config(text="AUSSTEIGEN", bg="#FF0000")
+            self.signal_label.config(text="LEAVE", bg="#FF0000")
 
         self._refresh_bet(tc)
         self._refresh_table(tc)
@@ -518,28 +527,31 @@ class BlackjackApp(tk.Tk):
 
     def _refresh_bet(self, tc):
         if tc is None:
-            self.edge_label.config(text="Schuh leer – bitte neuen Schuh starten.")
+            self.edge_label.config(text="Shoe empty – please start a new shoe.")
+            self.kelly_label.config(text="")
             self.bet_label.config(text="")
             self.insurance_label.config(text="")
             return
         edge = player_edge(tc)
-        self.edge_label.config(text=f"Geschätzter Spielervorteil: {fmt(edge)} %",
+        self.edge_label.config(text=f"Estimated player edge: {fmt(edge)} %",
                                fg=self._sign_color(edge))
+        self.kelly_label.config(
+            text=f"Kelly bet: {fmt(kelly_fraction(tc) * 100, 2, sign=False)} % of bankroll")
         units = bet_units(tc)
         try:
             unit_value = float(self.unit.get().replace(",", "."))
-            money = f" = {fmt(units * unit_value, 2, sign=False)} €"
+            money = f" = {fmt(units * unit_value, 2, sign=False)}"
         except ValueError:
             money = ""
         if units == 0:
-            self.bet_label.config(text="Einsatz: nicht spielen (bzw. Minimum)")
+            self.bet_label.config(text="Bet: sit out (or table minimum)")
         else:
-            self.bet_label.config(text=f"Einsatz: {units} Einheit{'en' if units > 1 else ''}"
+            self.bet_label.config(text=f"Bet: {units} unit{'s' if units > 1 else ''}"
                                        f"{money}")
         if take_insurance(tc):
-            self.insurance_label.config(text="Versicherung: JA (TC ≥ +3)", fg="#2E7D1F")
+            self.insurance_label.config(text="Insurance: YES (TC ≥ +3)", fg="#2E7D1F")
         else:
-            self.insurance_label.config(text="Versicherung: nein (erst ab TC ≥ +3)",
+            self.insurance_label.config(text="Insurance: no (only from TC ≥ +3)",
                                         fg="black")
 
     def _refresh_table(self, tc):
@@ -554,11 +566,11 @@ class BlackjackApp(tk.Tk):
             lbl.place(x=border, y=border, relwidth=1, relheight=1,
                       width=-2 * border, height=-2 * border)
             if deviates:
-                active.append(f"• {hand} gg. {dealer}: {ACTIONS[now][0]} "
-                              f"statt {ACTIONS[base][0]}")
+                active.append(f"• {hand} vs {dealer}: {ACTIONS[now][0]} "
+                              f"instead of {ACTIONS[base][0]}")
         if take_insurance(tc):
-            active.append("• Versicherung nehmen")
-        self.dev_label.config(text="\n".join(active) if active else "keine")
+            active.append("• Take insurance")
+        self.dev_label.config(text="\n".join(active) if active else "none")
 
     def _refresh_probabilities(self):
         for members, (_, left, now, normal, delta) in self.prob_rows.values():

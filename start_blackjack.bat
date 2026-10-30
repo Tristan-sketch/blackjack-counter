@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 where uv >nul 2>nul
 if errorlevel 1 (
-  echo uv wurde nicht gefunden. Installation: https://docs.astral.sh/uv/
+  echo uv was not found. Install it from https://docs.astral.sh/uv/
   pause
   exit /b 1
 )
